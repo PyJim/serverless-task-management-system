@@ -1,0 +1,202 @@
+service: task-management-system
+
+provider:
+  name: aws
+  runtime: python3.12
+  stage: dev
+  region: eu-west-1
+
+plugins:
+  - serverless-python-requirements
+
+functions:
+  userRegistration:
+    handler: handler.user_registration_handler
+    events:
+      - http:
+          path: users/register
+          method: post
+          cors:
+            origins:
+              - '*'
+            headers:
+              - Content-Type
+              - X-Amz-Date
+              - Authorization
+              - X-Api-Key
+              - X-Amz-Security-Token
+            allowCredentials: true
+
+  userLogin:
+    handler: handler.user_login_handler
+    events:
+      - http:
+          path: users/login
+          method: post
+          cors:
+            origins:
+              - '*'
+            headers:
+              - Content-Type
+              - X-Amz-Date
+              - Authorization
+              - X-Api-Key
+              - X-Amz-Security-Token
+            allowCredentials: true
+
+  createTask:
+    handler: handler.create_task_handler
+    events:
+      - http:
+          path: tasks
+          method: post
+          cors:
+            origins:
+              - '*'
+            headers:
+              - Content-Type
+              - X-Amz-Date
+              - Authorization
+              - X-Api-Key
+              - X-Amz-Security-Token
+            allowCredentials: true
+  updateTask:
+    handler: handler.update_task_handler
+    events:
+      - http:
+          path: tasks/{task_id}
+          method: put
+          cors:
+            origins:
+              - '*'
+            headers:
+              - Content-Type
+              - X-Amz-Date
+              - Authorization
+              - X-Api-Key
+              - X-Amz-Security-Token
+            allowCredentials: true
+
+  getUserDetails:
+    handler: handler.get_user_details_handler
+    events:
+      - http:
+          path: users/{user_id}
+          method: get
+          cors:
+            origins:
+              - '*'
+            headers:
+              - Content-Type
+              - X-Amz-Date
+              - Authorization
+              - X-Api-Key
+              - X-Amz-Security-Token
+            allowCredentials: true
+
+  getTasksByUser:
+    handler: handler.get_tasks_by_user_handler
+    events:
+      - http:
+          path: tasks/user/{user_id}
+          method: get
+          cors:
+            origins:
+              - '*'
+            headers:
+              - Content-Type
+              - X-Amz-Date
+              - Authorization
+              - X-Api-Key
+              - X-Amz-Security-Token
+            allowCredentials: true
+
+  updateTaskStatus:
+    handler: handler.update_task_status_handler
+    events:
+      - http:
+          path: tasks/status
+          method: put
+          cors:
+            origins:
+              - '*'
+            headers:
+              - Content-Type
+              - X-Amz-Date
+              - Authorization
+              - X-Api-Key
+              - X-Amz-Security-Token
+            allowCredentials: true
+
+  deleteTask:
+    handler: handler.delete_task_handler
+    events:
+      - http:
+          path: tasks/{task_id}
+          method: delete
+          cors:
+            origins:
+              - '*'
+            headers:
+              - Content-Type
+              - X-Amz-Date
+              - Authorization
+              - X-Api-Key
+              - X-Amz-Security-Token
+            allowCredentials: true
+
+  getAllUsers:
+    handler: handler.get_all_users_handler
+    events:
+      - http:
+          path: users
+          method: get
+          cors:
+            origins:
+              - '*'
+            headers:
+              - Content-Type
+              - X-Amz-Date
+              - Authorization
+              - X-Api-Key
+              - X-Amz-Security-Token
+            allowCredentials: true
+
+  getAllTasks:
+    handler: handler.get_all_tasks_handler
+    events:
+      - http:
+          path: tasks
+          method: get
+          cors:
+            origins:
+              - '*'
+            headers:
+              - Content-Type
+              - X-Amz-Date
+              - Authorization
+              - X-Api-Key
+              - X-Amz-Security-Token
+            allowCredentials: true
+
+  getSingleTask:
+    handler: handler.get_single_task_handler
+    events:
+      - http:
+          path: tasks/{task_id}
+          method: get
+          cors:
+            origins:
+              - '*'
+            headers:
+              - Content-Type
+              - X-Amz-Date
+              - Authorization
+              - X-Api-Key
+              - X-Amz-Security-Token
+            allowCredentials: true
+
+custom:
+  pythonRequirements:
+    dockerizePip: non-linux
+    zip: true
