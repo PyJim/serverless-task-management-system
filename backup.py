@@ -1,6 +1,3 @@
-import base64
-import hashlib
-import hmac
 import json
 import boto3
 import bcrypt
@@ -9,7 +6,6 @@ from botocore.exceptions import ClientError
 import jwt
 import json
 from datetime import datetime, timezone, timedelta
-import requests
 
 # Initialize SNS client
 sns_client = boto3.client('sns', region_name='eu-west-1')
@@ -30,94 +26,46 @@ cors_headers = {
     "Access-Control-Allow-Headers": "Content-Type, Authorization",  # Allowed headers
 }
 
-
-USER_POOL_ID = "eu-west-1_95E5hkHtd"  # Replace with your User Pool ID
-APP_CLIENT_ID = "4q8e67l1jrbuab6elejitnmaoe"  # Replace with your App Client ID
-COGNITO_REGION = "eu-west-1"  # e.g., "us-west-2"
-APP_CLIENT_SECRET = "j44i721ern6pn4qbstrj7974mnla3rs1uta0jeamh1s7h2q1vg1"
-
-# Initialize Cognito Identity Provider client
-cognito_client = boto3.client('cognito-idp', region_name=COGNITO_REGION)
-
-
-# Function to compute the SECRET_HASH
-def compute_secret_hash(username, client_id, client_secret):
-    message = username + client_id
-    key = client_secret.encode('utf-8')
-    message_bytes = message.encode('utf-8')
-
-    dig = hmac.new(key, message_bytes, hashlib.sha256).digest()
-    return base64.b64encode(dig).decode('utf-8')
-
-
-# Cognito Helper Functions
-def validate_token(token):
-    try:
-        # Get JWKS from Cognito
-        url = f"https://cognito-idp.{COGNITO_REGION}.amazonaws.com/{USER_POOL_ID}/.well-known/jwks.json"
-        jwks = requests.get(url).json()
-
-        # Extract the signing key based on the 'kid' in the token header
-        unverified_header = jwt.get_unverified_header(token)
-        kid = unverified_header['kid']
-        public_key = next((key for key in jwks['keys'] if key['kid'] == kid), None)
-
-        if not public_key:
-            raise ValueError("Public key not found in JWKS")
-
-        # Construct the public key object
-        rsa_key = {
-            "kty": public_key["kty"],
-            "e": public_key["e"],
-            "n": public_key["n"]
-        }
-
-        # Decode and validate the token
-        claims = jwt.decode(
-            token,
-            key=jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(rsa_key)),
-            algorithms=["RS256"],
-            audience=APP_CLIENT_ID,
-            options={"verify_exp": True}  # Ensure token expiry is verified
-        )
-
-        return claims
-
-    except jwt.ExpiredSignatureError:
-        raise ValueError("Token has expired")
-    except jwt.InvalidTokenError as e:
-        raise ValueError(f"Invalid token: {e}")
-
-# User Registration
+# User Registration Lambda
 def user_registration_handler(event, context):
     try:
+        # Extract user data from event body
         body = json.loads(event['body'])
         email = body['email']
         password = body['password']
+        role = body['role']
+        firstname = body['firstname']
 
-        # Compute the SECRET_HASH
-        secret_hash = compute_secret_hash(email, APP_CLIENT_ID, APP_CLIENT_SECRET)
-
-        # Perform the Cognito sign-up operation with the SECRET_HASH
-        response = cognito_client.sign_up(
-            ClientId=APP_CLIENT_ID,
-            Username=email,
-            Password=password,
-            SecretHash=secret_hash  # Include SECRET_HASH here
+        # Hash the password
+        hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        #hashed_password = password
+        # Generate unique user_id
+        user_id = "user_" + str(int(time.time()))  # Use current timestamp to generate user_id
+        
+        # Store user in DynamoDB
+        users_table.put_item(
+            Item={
+                'user_id': user_id,
+                'email': email,
+                'password': hashed_password,
+                'role': role,
+                'firstname': firstname,
+                'created_at': str(time.time())
+            }
         )
-
+        
         return {
             'statusCode': 201,
             'headers': cors_headers,
-            'body': json.dumps({'message': 'User registered successfully', 'userSub': response['UserSub']})
+            'body': json.dumps({'message': 'User created successfully', 'user_id': user_id})
         }
+
     except ClientError as e:
         return {
-            'statusCode': 400,
+            'statusCode': 500,
             'headers': cors_headers,
             'body': json.dumps({'message': str(e)})
         }
-
 
 # Get User Details Lambda
 def get_user_details_handler(event, context):
@@ -150,27 +98,19 @@ def get_user_details_handler(event, context):
             'body': json.dumps({'message': str(e)})
         }
 
-# Get all users from Cognito
+# Get all users
 def get_all_users_handler(event, context):
     try:
-        # List users from Cognito User Pool
-        response = cognito_client.list_users(
-            UserPoolId=USER_POOL_ID,
-        )
-
-        users = []
-        for user in response['Users']:
-            # Prepare user data, removing any sensitive information like password
-            user_data = {
-                'username': user['Username'],
-                'email': next((attr['Value'] for attr in user['Attributes'] if attr['Name'] == 'email'), None),
-            }
-            users.append(user_data)
+        # Scan the Users table
+        response = users_table.scan()
+        for user in response['Items']:
+            if 'password' in user:
+                del user['password']
 
         return {
             'statusCode': 200,
             'headers': cors_headers,
-            'body': json.dumps({'users': users})
+            'body': json.dumps({'users': response['Items']})
         }
     except ClientError as e:
         return {
@@ -178,7 +118,6 @@ def get_all_users_handler(event, context):
             'headers': cors_headers,
             'body': json.dumps({'message': str(e)})
         }
-
 
 # Generate a JWT token
 def generate_token(user_id, email):
@@ -190,45 +129,64 @@ def generate_token(user_id, email):
     token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
     return token
 
-# User Login Handler
+# User Login Lambda
 def user_login_handler(event, context):
     try:
-        # Parse the input JSON body
+        # Extract login details from event
         body = json.loads(event['body'])
         email = body['email']
         password = body['password']
 
-        # Compute the SECRET_HASH
-        secret_hash = compute_secret_hash(email, APP_CLIENT_ID, APP_CLIENT_SECRET)
-
-        # Initiate authentication request with Cognito
-        response = cognito_client.admin_initiate_auth(
-            UserPoolId=USER_POOL_ID,
-            ClientId=APP_CLIENT_ID,
-            AuthFlow='ADMIN_NO_SRP_AUTH',
-            AuthParameters={
-                'USERNAME': email,
-                'PASSWORD': password,
-                'SECRET_HASH': secret_hash  # Include SECRET_HASH here
-            }
+        # Query DynamoDB for user by email
+        response = users_table.scan(
+            FilterExpression="email = :email",
+            ExpressionAttributeValues={":email": email}
         )
 
-        # Return success response with authentication tokens
-        return {
-            'statusCode': 200,
-            'headers': cors_headers,
-            'body': json.dumps({
-                'message': 'User logged in successfully',
-                'accessToken': response['AuthenticationResult']['AccessToken'],
-                'idToken': response['AuthenticationResult']['IdToken'],
-                'refreshToken': response['AuthenticationResult']['RefreshToken']
-            })
-        }
+        if response['Items']:
+            user = response['Items'][0]  # Assuming email is unique
+            stored_password = user['password']
+
+            # Check if entered password matches stored password
+            if bcrypt.checkpw(password.encode('utf-8'), stored_password.encode('utf-8')):
+            #if password == stored_password:  # Replace with bcrypt if needed
+                # Generate JWT token
+                token = generate_token(user['user_id'], email)
+
+                if 'password' in user:
+                    del user['password']
+
+                return {
+                    'statusCode': 200,
+                    'headers': cors_headers,
+                    'body': json.dumps({
+                        'message': 'Login successful',
+                        'user': user,
+                        'access_token': token
+                    })
+                }
+            else:
+                return {
+                    'statusCode': 400,
+                    'headers': cors_headers,
+                    'body': json.dumps({'message': 'Invalid password'})
+                }
+        else:
+            return {
+                'statusCode': 404,
+                'headers': cors_headers,
+                'body': json.dumps({'message': 'User not found'})
+            }
 
     except ClientError as e:
-        # Return error response if an exception occurs
         return {
-            'statusCode': 400,
+            'statusCode': 500,
+            'headers': cors_headers,
+            'body': json.dumps({'message': str(e)})
+        }
+    except Exception as e:
+        return {
+            'statusCode': 500,
             'headers': cors_headers,
             'body': json.dumps({'message': str(e)})
         }

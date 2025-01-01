@@ -195,6 +195,13 @@ functions:
               - X-Api-Key
               - X-Amz-Security-Token
             allowCredentials: true
+  deadlineMonitor:
+    handler: handler.deadline_monitor_handler
+    events:
+      - schedule:
+          rate: rate(1 hour)  # Runs every hour
+          enabled: true
+
 
 custom:
   pythonRequirements:

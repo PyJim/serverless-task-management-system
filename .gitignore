@@ -5,3 +5,9 @@ PyJWT*
 bcrypt*
 .requirements.zip
 .serverless
+bin
+certi*
+charset*
+requests*
+idna*
+urllib3*
